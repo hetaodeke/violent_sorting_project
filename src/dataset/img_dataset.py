@@ -24,19 +24,19 @@ class ImgData(Dataset):
         # Augmentation params.
         self._data_mean = cfg.DATA.MEAN
         self._data_std = cfg.DATA.STD
-        self._use_bgr = cfg.AVA.BGR
+        self._use_bgr = cfg.DATA.BGR
         self.random_horizontal_flip = cfg.DATA.RANDOM_FLIP
         if self._split == "train":
             self._crop_size = cfg.DATA.TRAIN_CROP_SIZE
             self._jitter_min_scale = cfg.DATA.TRAIN_JITTER_SCALES[0]
             self._jitter_max_scale = cfg.DATA.TRAIN_JITTER_SCALES[1]
-            self._use_color_augmentation = cfg.AVA.TRAIN_USE_COLOR_AUGMENTATION
-            self._pca_jitter_only = cfg.AVA.TRAIN_PCA_JITTER_ONLY
-            self._pca_eigval = cfg.AVA.TRAIN_PCA_EIGVAL
-            self._pca_eigvec = cfg.AVA.TRAIN_PCA_EIGVEC
+            self._use_color_augmentation = cfg.DATA.TRAIN_USE_COLOR_AUGMENTATION
+            self._pca_jitter_only = cfg.DATA.TRAIN_PCA_JITTER_ONLY
+            self._pca_eigval = cfg.DATA.TRAIN_PCA_EIGVAL
+            self._pca_eigvec = cfg.DATA.TRAIN_PCA_EIGVEC
         else:
             self._crop_size = cfg.DATA.TEST_CROP_SIZE
-            self._test_force_flip = cfg.AVA.TEST_FORCE_FLIP
+            self._test_force_flip = cfg.DATA.TEST_FORCE_FLIP
 
         self._load_data(cfg)
 
@@ -383,9 +383,9 @@ class ImgData(Dataset):
         # Load images of current clip.
         image_paths = [self._image_paths[video_idx][frame] for frame in seq]
         imgs = utils.retry_load_images(
-            image_paths, backend=self.cfg.AVA.IMG_PROC_BACKEND
+            image_paths, backend=self.cfg.DATA.IMG_PROC_BACKEND
         )
-        if self.cfg.AVA.IMG_PROC_BACKEND == "pytorch":
+        if self.cfg.DATA.IMG_PROC_BACKEND == "pytorch":
             # T H W C -> T C H W.
             imgs = imgs.permute(0, 3, 1, 2)
             # Preprocess images and boxes.

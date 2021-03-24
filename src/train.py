@@ -16,6 +16,7 @@ import argparse
 from utils.pytorchtools import EarlyStopping
 
 from dataset.loader import construct_loader
+from model.build import build_model
 from utils.util import *
 
 parser = argparse.ArgumentParser()
@@ -24,7 +25,7 @@ parser.add_argument('--local_rank', default=-1, type=int,
 args = parser.parse_args()
 
 
-def main_worker(rank, world_size, args):
+def train(rank, world_size, args):
     dist.init_process_group(backend='nccl', init_method='tcp://127.0.0.1:23456', world_size=world_size, rank=rank)
     torch.cuda.set_device(args.local_rank)
 
@@ -46,13 +47,7 @@ def main_worker(rank, world_size, args):
     # 3) init model/loss/optimizer
     # ================================================
 
-    # model = ResNet18()
-    # model = BotNet()
-    # model = VGG16()
-    # model = CNN()
-    # model = DNN()
-    model = LeNet()
-    # model = AlexNet()
+    model = build_model(cfg)
     
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
 
@@ -152,4 +147,4 @@ def main_worker(rank, world_size, args):
 
 
 if __name__ == '__main__':
-    mp.spawn(main_worker, nprocs=args.world_size, args=(args.world_size, args))
+    mp.spawn(train, nprocs=args.world_size, args=(args.world_size, args))

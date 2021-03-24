@@ -27,9 +27,9 @@ def load_image_lists(cfg, is_train):
         video_idx_to_name (list): a list which stores video names.
     """
     list_filenames = [
-        os.path.join(cfg.AVA.FRAME_LIST_DIR, filename)
+        os.path.join(cfg.DATA.FRAME_LIST_DIR, filename)
         for filename in (
-            cfg.AVA.TRAIN_LISTS if is_train else cfg.AVA.TEST_LISTS
+            cfg.DATA.TRAIN_LISTS if is_train else cfg.DATA.TEST_LISTS
         )
     ]
     image_paths = defaultdict(list)
@@ -53,7 +53,7 @@ def load_image_lists(cfg, is_train):
                 data_key = video_name_to_idx[video_name]
 
                 image_paths[data_key].append(
-                    os.path.join(cfg.AVA.FRAME_DIR, row[3])
+                    os.path.join(cfg.DATA.FRAME_DIR, row[3])
                 )
 
     image_paths = [image_paths[i] for i in range(len(image_paths))]
@@ -79,23 +79,23 @@ def load_boxes_and_labels(cfg, mode):
             coordinates of box and 'box_labels` are the corresponding
             labels for the box.
     """
-    gt_lists = cfg.AVA.TRAIN_GT_BOX_LISTS if mode == "train" else []
+    gt_lists = cfg.DATA.TRAIN_GT_BOX_LISTS if mode == "train" else []
     pred_lists = (
-        cfg.AVA.TRAIN_PREDICT_BOX_LISTS
+        cfg.DATA.TRAIN_PREDICT_BOX_LISTS
         if mode == "train"
-        else cfg.AVA.TEST_PREDICT_BOX_LISTS
+        else cfg.DATA.TEST_PREDICT_BOX_LISTS
     )
     ann_filenames = [
-        os.path.join(cfg.AVA.ANNOTATION_DIR, filename)
+        os.path.join(cfg.DATA.ANNOTATION_DIR, filename)
         for filename in gt_lists + pred_lists
     ]
     ann_is_gt_box = [True] * len(gt_lists) + [False] * len(pred_lists)
 
-    detect_thresh = cfg.AVA.DETECTION_SCORE_THRESH
+    detect_thresh = cfg.DATA.DETECTION_SCORE_THRESH
     # Only select frame_sec % 4 = 0 samples for validation if not
     # set FULL_TEST_ON_VAL.
     boxes_sample_rate = (
-        4 if mode == "val" and not cfg.AVA.FULL_TEST_ON_VAL else 1
+        4 if mode == "val" and not cfg.DATA.FULL_TEST_ON_VAL else 1
     )
     all_boxes, count, unique_box_count = parse_bboxes_file(
         ann_filenames=ann_filenames,
