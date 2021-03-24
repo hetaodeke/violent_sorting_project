@@ -62,6 +62,3 @@ def make_weight(labels, n_classes):
         weight[idx] = weight_per_class[value]
     return weight
 
-if __name__ == "__main__":
-    # print(proj_root_dir)
-    pass
