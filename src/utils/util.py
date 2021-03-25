@@ -61,4 +61,3 @@ def make_weight(labels, n_classes):
     for idx, value in enumerate(labels):
         weight[idx] = weight_per_class[value]
     return weight
-

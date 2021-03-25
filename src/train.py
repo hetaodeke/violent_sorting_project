@@ -1,3 +1,4 @@
+from sys import path
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -9,6 +10,7 @@ from apex import amp
 from apex.parallel import DistributedDataParallel
 
 import shutil
+import logging
 import os
 import numpy as np
 import time
@@ -18,30 +20,53 @@ from utils.pytorchtools import EarlyStopping
 from dataset.loader import construct_loader
 from model.build import build_model
 from utils.util import *
+from configs.deafualt import get_cfg
+
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--local_rank', default=-1, type=int,
-                    help='node rank for distributed training')
+parser.add_argument(
+        '--local_rank',
+        default=-1, 
+        type=int,
+        help='node rank for distributed training'
+    )
+parser.add_argument(
+        "--cfg",
+        dest="cfg_file",
+        help="Path to the config file",
+        default="configs/Kinetics/SLOWFAST_4x16_R50.yaml",
+        type=str,
+    )
+parser.add_argument(
+        "--init_method",
+        help="Initialization method, includes TCP or shared file-system",
+        default="tcp://localhost:9999",
+        type=str,
+    )
+parser.add_argument(
+        "--world_size",
+        help="Number of world_size",
+        default=4,
+        type=int,
+    )                       
 args = parser.parse_args()
 
 
-def train(rank, world_size, args):
-    dist.init_process_group(backend='nccl', init_method='tcp://127.0.0.1:23456', world_size=world_size, rank=rank)
+def train(world_size, args, cfg):
+    dist.init_process_group(backend='nccl', init_method=args.init_method, world_size=world_size, rank=args.local_rank)
     torch.cuda.set_device(args.local_rank)
 
     seed = int(time.time() * 256)
     torch.manual_seed(seed)
+
+    logger = logging.get_logger(__name__)
+    logging.basicConfig(level=20, format='%(asctime)s - %(message)s')
  
     # ================================================
     # 2) get data and load data
     # ================================================
     train_dataloader = construct_loader(cfg, 'train')
     val_dataloader = construct_loader(cfg, 'val')
-    print("""----Data statistics------'
-            # feature_dim: [None, %d]
-            -------------------------
-                """ % 
-            (config['features_dim']))
 
     # ================================================
     # 3) init model/loss/optimizer
@@ -64,7 +89,7 @@ def train(rank, world_size, args):
     print("| train on train dataset |")
     print("|------------------------|")
 
-    early_stopping = EarlyStopping(20, verbose=True)
+    early_stopping = EarlyStopping(20, verbose=True, path='checkpoints/LeNet_model.pth', trace_func=logging.info)
     writer = SummaryWriter()
     start_time = time.time()
     for epoch in range(args.n_epochs):   
@@ -98,13 +123,7 @@ def train(rank, world_size, args):
 
             train_acc_lst.append(train_acc)
             train_loss_lst.append(train_loss)
-            # print(
-            # "Train Phase, Epoch:{} [{}/{}], Train_Loss:{}, Train_Accuracy:{}"
-            # .format(
-            #     epoch, i, int(len(train_dataloader.dataset)/len(train_data)), 
-            #     train_loss.item(), train_acc
-            #         )
-            #     )
+            
         train_avg_loss = sum(train_loss_lst)/i
         train_avg_acc = sum(train_acc_lst)/i
     # ================================================
@@ -115,8 +134,6 @@ def train(rank, world_size, args):
         for v ,val_dataset in enumerate(val_dataloader):
             val_data, val_label = val_dataset
 
-            # val_data = val_data.long()
-            # val_label = val_label.long()
 
             val_outputs = model(val_data)
             val_loss = F.cross_entropy(val_outputs, val_label.long())
@@ -127,24 +144,24 @@ def train(rank, world_size, args):
 
         val_avg_acc = sum(val_acc_lst)/v
         val_avg_loss = sum(val_loss_lst)/v
-        print("Train Phase, Epoch:{}, Train_avg_loss:{}, Val_avg_loss:{},Train_avg_acc:{}, Val_avg_acc:{}"
+        logging.info("Train Phase, Epoch:{}, Train_avg_loss:{}, Val_avg_loss:{},Train_avg_acc:{}, Val_avg_acc:{}"
         .format(epoch, train_avg_loss, val_avg_loss, train_avg_acc, val_avg_acc))
         early_stopping(val_avg_loss, model)
         if early_stopping.early_stop:
             print('|------- Early Stop ------|')
             end_time = time.time()
-            print("Total spend time:{}s".format(end_time-start_time))
+            logging.info("Total spend time:{}s".format(end_time-start_time))
             break
 
         writer.add_scalar('Loss', train_avg_loss, epoch)
         writer.add_scalar('Accuracy', train_avg_acc, epoch)
-
-    # ================================================
-    # 6) save model
-    # ================================================
-    torch.save(model, 'checkpoints/LeNet_model.pth')
+        logging.FileHandler('logs/{}_log.txt'.format(time.strftime(r"%Y-%m-%d-%H_%M_%S", time.localtime())))
+    
 
 
 
 if __name__ == '__main__':
-    mp.spawn(train, nprocs=args.world_size, args=(args.world_size, args))
+    cfg = get_cfg()
+    if args.cfg_file is not None:
+        cfg.merge_from_file(args.cfg_file)
+    mp.spawn(train, nprocs=args.world_size, args=(args.world_size, args, cfg))
