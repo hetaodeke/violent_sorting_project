@@ -7,9 +7,11 @@ from . import data_helper
 from . import cv2_transform
 from . import transform
 from . import utils
+from .build import DATASET_REGISTRY
 
 logger = logging.getLogger(__name__)
 
+@DATASET_REGISTRY.register()
 class ImgData(Dataset):
     """
     Images Dataset Based on Video

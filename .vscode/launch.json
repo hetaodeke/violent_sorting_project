@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["-m", "torch.distributed.launch", "--nproc_per_node=4"]
+            "args": ["--cfg", "configs/ImgDataset_configs.yaml"]
         }
     ]
 }

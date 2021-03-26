@@ -4,8 +4,6 @@ import os
 import pathlib
 import datetime
 
-from args_and_config.config import config
-
 
 def compute_root_dir():
     root_dir = os.path.abspath(

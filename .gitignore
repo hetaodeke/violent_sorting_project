@@ -1,0 +1,9 @@
+.vscode/
+
+checkpoints/
+
+logs/
+
+runs/
+
+data/

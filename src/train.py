@@ -34,7 +34,7 @@ parser.add_argument(
         "--cfg",
         dest="cfg_file",
         help="Path to the config file",
-        default="configs/Kinetics/SLOWFAST_4x16_R50.yaml",
+        default="configs/ImgDataset_configs.yaml",
         type=str,
     )
 parser.add_argument(
@@ -52,14 +52,15 @@ parser.add_argument(
 args = parser.parse_args()
 
 
-def train(world_size, args, cfg):
-    dist.init_process_group(backend='nccl', init_method=args.init_method, world_size=world_size, rank=args.local_rank)
+def train(rank, world_size, args, cfg):
+    dist.init_process_group(backend='nccl', init_method=args.init_method, world_size=world_size, rank=rank)
+    # dist.init_process_group(backend='nccl', rank=rank, )
     torch.cuda.set_device(args.local_rank)
 
     seed = int(time.time() * 256)
     torch.manual_seed(seed)
 
-    logger = logging.get_logger(__name__)
+    logger = logging.getLogger(__name__)
     logging.basicConfig(level=20, format='%(asctime)s - %(message)s')
  
     # ================================================
@@ -165,3 +166,4 @@ if __name__ == '__main__':
     if args.cfg_file is not None:
         cfg.merge_from_file(args.cfg_file)
     mp.spawn(train, nprocs=args.world_size, args=(args.world_size, args, cfg))
+    # train(args.world_size, cfg, args)

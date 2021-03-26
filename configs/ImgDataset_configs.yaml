@@ -1,15 +1,15 @@
 TRAIN:
   DATASET: ImgData
-  BATCH_SIZE: 64
+  BATCH_SIZE: 2
 DATA:
-  NUM_FRAMES: 32
+  NUM_FRAMES: 10
   SAMPLING_RATE: 2
   TRAIN_JITTER_SCALES: [256, 320]
   TRAIN_CROP_SIZE: 224
   TEST_CROP_SIZE: 224
   INPUT_CHANNEL_NUM: [3, 3]
   DETECTION_SCORE_THRESH: 0.8
-  TRAIN_PREDICT_BOX_LISTS: ["ava_train_v2.2.csv",]
+  TRAIN_PREDICT_BOX_LISTS: ["my_dataset_train_copy.csv",]
   TEST_PREDICT_BOX_LISTS: ["person_box_67091280_iou90/ava_detection_val_boxes_and_labels.csv"]
 DETECTION:
   ENABLE: True
