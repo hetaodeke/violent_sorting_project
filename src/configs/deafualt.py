@@ -4,7 +4,7 @@ from fvcore.common.config import CfgNode
 _C = CfgNode()
 
 # -----------------------------------------------------------------------------
-# Data options
+# Train options
 # -----------------------------------------------------------------------------
 _C.TRAIN = CfgNode()
 _C.TRAIN.DATASET = "ImgData"
@@ -21,8 +21,8 @@ _C.DATA.TRAIN_CROP_SIZE = 224
 _C.DATA.TEST_CROP_SIZE = 224
 _C.DATA.INPUT_CHANNEL_NUM = [3, 3]
 _C.DATA.DETECTION_SCORE_THRESH = 0.8
-_C.DATA.TRAIN_PREDICT_BOX_LISTS = ["my_dataset_train_copy.csv",]
-_C.DATA.TEST_PREDICT_BOX_LISTS = ["person_box_67091280_iou90/ava_detection_val_boxes_and_labels.csv"]
+_C.DATA.TRAIN_PREDICT_BOX_LISTS = ["my_dataset_train_predicted_boxes_copy.csv",]
+_C.DATA.TEST_PREDICT_BOX_LISTS = ["my_dataset_val_predicted_boxes_copy.csv"]
 _C.DATA.MEAN = [0.45, 0.45, 0.45]
 _C.DATA.STD = [0.225, 0.225, 0.225]
 _C.DATA.BGR = False
@@ -53,6 +53,11 @@ _C.DATA.FULL_TEST_ON_VAL = False
 _C.DETECTION = CfgNode()
 _C.DETECTION.ENABLE = True
 _C.DETECTION.ALIGNED = True
+# RoI tranformation resolution.
+_C.DETECTION.ROI_XFORM_RESOLUTION = 7
+# Spatial scale factor.
+_C.DETECTION.SPATIAL_SCALE_FACTOR = 16
+
 # -----------------------------------------------------------------------------
 # Model options
 # -----------------------------------------------------------------------------
@@ -66,6 +71,7 @@ _C.MODEL.MODEL_NAME = "SlowFast"
 _C.MODEL.LOSS_FUNC = "cross_entropy"
 _C.MODEL.DROPOUT_RATE = 0.5
 _C.MODEL.HEAD_ACT = "softmax"
+
 # -----------------------------------------------------------------------------
 # SlowFast options
 # -----------------------------------------------------------------------------
@@ -74,6 +80,7 @@ _C.SLOWFAST.ALPHA = 4
 _C.SLOWFAST.BETA_INV = 8
 _C.SLOWFAST.FUSION_CONV_CHANNEL_RATIO = 2
 _C.SLOWFAST.FUSION_KERNEL_SZ = 7
+
 # -----------------------------------------------------------------------------
 # ResNet options
 # -----------------------------------------------------------------------------
@@ -132,10 +139,13 @@ _C.NONLOCAL.POOL = [[[1, 2, 2], [1, 2, 2]], [[1, 2, 2], [1, 2, 2]], [[1, 2, 2], 
 # BatchNormal options
 # -----------------------------------------------------------------------------
 _C.BN = CfgNode()
+
 _C.BN.USE_PRECISE_STATS = False
 _C.BN.NUM_BATCHES_PRECISE = 200
+_C.BN.NORM_TYPE = "batchnorm"
+
 # -----------------------------------------------------------------------------
-# BatchNormal options
+# Solver options
 # -----------------------------------------------------------------------------
 _C.SOLVER = CfgNode()
 _C.SOLVER.BASE_LR = 0.1
@@ -161,6 +171,16 @@ _C.TEST.BATCH_SIZE = 8
 _C.DATA_LOADER = CfgNode()
 _C.DATA_LOADER.NUM_WORKERS = 2
 _C.DATA_LOADER.PIN_MEMORY = True
+
+# ---------------------------------------------------------------------------- #
+# Multigrid training options
+# See https://arxiv.org/abs/1912.00998 for details about multigrid training.
+# ---------------------------------------------------------------------------- #
+_C.MULTIGRID = CfgNode()
+
+# Enable short cycles.
+_C.MULTIGRID.SHORT_CYCLE = False
+
 # ---------------------------------------------------------------------------- #
 # Misc options
 # ---------------------------------------------------------------------------- #

@@ -8,8 +8,8 @@ from iopath.common.file_io import g_pathmgr
 
 logger = logging.getLogger(__name__)
 
-FPS = 30
-AVA_VALID_FRAMES = range(902, 1799)
+FPS = 10
+VALID_FRAMES = range(38)
 
 
 def load_image_lists(cfg, is_train):
@@ -142,7 +142,7 @@ def get_keyframe_data(boxes_and_labels):
         sec_idx = 0
         keyframe_boxes_and_labels.append([])
         for sec in boxes_and_labels[video_idx].keys():
-            if sec not in AVA_VALID_FRAMES:
+            if sec not in VALID_FRAMES:
                 continue
 
             if len(boxes_and_labels[video_idx][sec]) > 0:
@@ -215,7 +215,7 @@ def parse_bboxes_file(
 
                 if video_name not in all_boxes:
                     all_boxes[video_name] = {}
-                    for sec in AVA_VALID_FRAMES:
+                    for sec in VALID_FRAMES:
                         all_boxes[video_name][sec] = {}
 
                 if box_key not in all_boxes[video_name][frame_sec]:

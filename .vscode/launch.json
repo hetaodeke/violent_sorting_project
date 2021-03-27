@@ -8,9 +8,10 @@
             "name": "Python: 当前文件",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
+            // "program": "${file}",
+            "program": "src/train.py",
             "console": "integratedTerminal",
-            "args": ["--cfg", "configs/ImgDataset_configs.yaml"]
+            "args": ["--cfg", "configs/ImgDataset_configs.yaml", "--local_rank", "2"]
         }
     ]
 }

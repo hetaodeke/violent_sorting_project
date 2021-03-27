@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 
 import utils.weight_init_helper as init_helper
-from slowfast.models.batchnorm_helper import get_norm
 
 from . import head_helper, resnet_helper, stem_helper
+from .batchnorm_helper import get_norm
 from .build import MODEL_REGISTRY
 
 # Number of blocks for different stages given the model depth.
