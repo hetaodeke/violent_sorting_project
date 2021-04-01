@@ -9,6 +9,7 @@ _C = CfgNode()
 _C.TRAIN = CfgNode()
 _C.TRAIN.DATASET = "ImgData"
 _C.TRAIN.BATCH_SIZE = 2
+_C.TRAIN.IS_VALIDATION = True
 
 # -----------------------------------------------------------------------------
 # Data options
@@ -199,7 +200,7 @@ _C.OUTPUT_DIR = "./tmp"
 
 # Note that non-determinism may still be present due to non-deterministic
 # operator implementations in GPU operator libraries.
-_C.RNG_SEED = 1
+_C.CUDNN_DETERMINISTIC = False
 
 # Log period in iters.
 _C.LOG_PERIOD = 10

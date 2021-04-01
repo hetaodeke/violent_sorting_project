@@ -11,7 +11,7 @@
             // "program": "${file}",
             "program": "src/train.py",
             "console": "integratedTerminal",
-            "args": ["--cfg", "configs/ImgDataset_configs.yaml", "--local_rank", "2"]
+            "args": ["--cfg", "configs/ImgDataset_configs.yaml", "--local_rank", "0"]
         }
     ]
 }
