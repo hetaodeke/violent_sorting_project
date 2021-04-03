@@ -54,10 +54,10 @@ parser.add_argument(
 args = parser.parse_args()
 
 
-def main_work(rank, args, cfg):
+def main_work(world_size, rank, args, cfg):
     # dist.init_process_group(backend='nccl', init_method=args.init_method, world_size=world_size, rank=rank)
     dist.init_process_group(backend='nccl')
-    torch.cuda.set_device(rank)
+    torch.cuda.set_device(world_size)
 
     seed = int(time.time() * 256)
     torch.manual_seed(seed)
@@ -80,7 +80,7 @@ def main_work(rank, args, cfg):
     
     model, optimizer = amp.initialize(model, optimizer)
 
-    model = torch.nn.parallel.DistributedDataParallel(model)
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=args.world_size)
 
     cudnn.benchmark = True
 
