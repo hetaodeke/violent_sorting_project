@@ -409,7 +409,7 @@ class ImgData(Dataset):
             for label in box_labels:
                 if label == -1:
                     continue
-                assert label >= 1 and label <= 80
+                assert label >= 0 and label <= self._num_classes
                 label_arrs[i][label - 1] = 1
 
         imgs = utils.pack_pathway_output(self.cfg, imgs)

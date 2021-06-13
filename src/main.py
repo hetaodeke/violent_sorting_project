@@ -80,12 +80,13 @@ def main_worker(rank, nprocs, args ,cfg):
 
 
     # define loss function (criterion) and optimizer
-    criterion = nn.BCELoss().cuda(rank)
+    # criterion = nn.BCELoss().cuda(rank)
+    criterion = nn.CrossEntropyLoss().cuda(rank)
 
     optimizer = torch.optim.SGD(model.parameters(), lr=cfg.SOLVER.BASE_LR, momentum=cfg.SOLVER.MOMENTUM, weight_decay=cfg.SOLVER.WEIGHT_DECAY)
 
     # model, optimizer = amp.initialize(model, optimizer)
-    model = DDP(model, device_ids=[rank])
+    model = DDP(model, device_ids=[rank], find_unused_parameters=True)
 
     cudnn.benchmark = True
 
@@ -103,7 +104,7 @@ def main_worker(rank, nprocs, args ,cfg):
         loss = train(train_dataloader, model, criterion, optimizer, epoch, rank, args, logger, cfg)
 
         # evaluate on validation set
-        acc1 = validate(val_dataloader, model, criterion, rank, args, logger, cfg)
+        acc1, acc5 = validate(val_dataloader, model, criterion, rank, args, logger, cfg)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -118,7 +119,8 @@ def main_worker(rank, nprocs, args ,cfg):
                 }, is_best)
 
         writer.add_scalar('Loss', loss, epoch)
-        writer.add_scalar('Accuracy', acc1, epoch)
+        writer.add_scalar('Acc@1', acc1, epoch)
+        writer.add_scalar('Acc@5', acc5, epoch)
         writer.flush()
         writer.close()
     return print("Train finished! to see train infomation in log/, to see train result in runs/ by using tensorboard command")
@@ -138,42 +140,40 @@ def train(train_loader, model, criterion, optimizer, epoch, rank, args, logger, 
     end = time.time()
     
     for iter, traindata in enumerate(train_loader):
-        data, label, _, meta = traindata
+        data, label = traindata
         if isinstance(data, (list,)):
             for i in range(len(data)):
                 data[i] = data[i].cuda(rank)
         else:
             data = data.cuda(rank)
+        # label = torch.nn.functional.one_hot(label, cfg.MODEL.NUM_CLASSES).float()
         label = label.cuda(rank)
-        for key, val in meta.items():
-            if isinstance(val, (list,)):
-                for i in range(len(val)):
-                    val[i] = val[i].cuda(non_blocking=True)
-            else:
-                meta[key] = val.cuda(non_blocking=True)
         # measure data loading time
         data_time.update(time.time() - end)
 
         # compute output
-        if cfg.DETECTION.ENABLE:
-            output = model(data, meta["boxes"])
-        else:
-            output = model(data)
+        output = model(data)
         loss = criterion(output, label)
-        adjust_lr(optimizer, epoch, cfg.SOLVER.BASE_LR)
+        adjust_lr(optimizer, epoch, cfg.SOLVER.BASE_LR, cfg)
 
         # measure accuracy and record loss
-        acc1, acc5 = topks_correct(output, label, (1, 5))
+        # acc1, acc5 = topks_correct(output, label, (1, 5))
+        acc1 = accuracytop1(output, label, (1, ))
+        acc5 = accuracytop5(output, label, (5, ))
 
-        torch.distributed.barrier()
+        # torch.distributed.barrier()
 
-        reduced_loss = reduce_mean(loss, args.nprocs)
-        reduced_acc1 = reduce_mean(acc1, args.nprocs)
-        reduced_acc5 = reduce_mean(acc5, args.nprocs)
+        # reduced_loss = reduce_mean(loss, args.nprocs)
+        # reduced_acc1 = reduce_mean(acc1, args.nprocs)
+        # reduced_acc5 = reduce_mean(acc5, args.nprocs)
 
-        losses.update(reduced_loss.item(), data[0].size(0))
-        top1.update(reduced_acc1.item(), data[0].size(0))
-        top5.update(reduced_acc5.item(), data[0].size(0))
+        # losses.update(reduced_loss.item(), data[0].size(0))
+        # top1.update(reduced_acc1.item(), data[0].size(0))
+        # top5.update(reduced_acc5.item(), data[0].size(0))
+
+        losses.update(loss.item(), data[0].size(0))
+        top1.update(acc1.item(), data[0].size(0))
+        top5.update(acc5.item(), data[0].size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -206,38 +206,35 @@ def validate(val_loader, model, criterion, rank, args, logger, cfg):
     with torch.no_grad():
         end = time.time()
         for iter, valdata in enumerate(val_loader):
-            data, label, _, meta= valdata
+            data, label = valdata
             if isinstance(data, (list,)):
                 for i in range(len(data)):
                     data[i] = data[i].cuda(rank)
             else:
                 data = data.cuda(rank)
             label = label.cuda(rank)
-            for key, val in meta.items():
-                if isinstance(val, (list,)):
-                    for i in range(len(val)):
-                        val[i] = val[i].cuda(rank)
-                else:
-                    meta[key] = val.cuda(rank)
             # compute output
-            if cfg.DETECTION.ENABLE:
-                output = model(data, meta["boxes"])
-            else:
-                output = model(data)
+            output = model(data)
             loss = criterion(output, label)
 
             # measure accuracy and record loss
-            acc1, acc5 = topks_correct(output, label, (1, 5))
+            # acc1, acc5 = topks_correct(output, label, (1, 5))
+            acc1 = accuracytop1(output, label, (1, ))
+            acc5 = accuracytop5(output, label, (5, ))
 
             # torch.distributed.barrier()
 
-            reduced_loss = reduce_mean(loss, args.nprocs)
-            reduced_acc1 = reduce_mean(acc1, args.nprocs)
-            reduced_acc5 = reduce_mean(acc5, args.nprocs)
+            # reduced_loss = reduce_mean(loss, args.nprocs)
+            # reduced_acc1 = reduce_mean(acc1, args.nprocs)
+            # reduced_acc5 = reduce_mean(acc5, args.nprocs)
 
-            losses.update(reduced_loss.item(), data[0].size(0))
-            top1.update(reduced_acc1.item(), data[0].size(0))
-            top5.update(reduced_acc5.item(), data[0].size(0))
+            # losses.update(reduced_loss.item(), data[0].size(0))
+            # top1.update(reduced_acc1.item(), data[0].size(0))
+            # top5.update(reduced_acc5.item(), data[0].size(0))
+
+            losses.update(loss.item(), data[0].size(0))
+            top1.update(acc1.item(), data[0].size(0))
+            top5.update(acc5.item(), data[0].size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -251,7 +248,7 @@ def validate(val_loader, model, criterion, rank, args, logger, cfg):
         # TODO: this should also be done with the ProgressMeter
         logger.info(' * Val Acc@1 {top1.avg:.3f} Val Acc@5 {top5.avg:.3f}'.format(top1=top1, top5=top5))
 
-    return top1.avg
+    return top1.avg, top5.avg
 
 
 
@@ -259,5 +256,5 @@ if __name__ == '__main__':
     cfg = get_cfg()
     if args.cfg_file is not None:
         cfg.merge_from_file(args.cfg_file)
-    os.environ["CUDA_VISIBLE_DIVICES"] = args.gpu_idx
+    # os.environ["CUDA_VISIBLE_DIVICES"] = args.gpu_idx
     mp.spawn(main_worker, nprocs=args.nprocs, args=(args.nprocs, args, cfg), join=True)

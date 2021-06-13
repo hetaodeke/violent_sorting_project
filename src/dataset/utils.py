@@ -85,6 +85,26 @@ def pack_pathway_output(cfg, frames):
         frames = frames[[2, 1, 0], :, :, :]
     if cfg.MODEL.ARCH in cfg.MODEL.SINGLE_PATHWAY_ARCH:
         frame_list = [frames]
+    elif cfg.MODEL.ARCH in cfg.MODEL.DOUBLE_PATHWAY_ARCH:
+        fast_pathway = frames
+        # Perform temporal sampling from the fast pathway.
+        if isinstance(frames, torch.Tensor):
+            slow_pathway = torch.index_select(
+                frames,
+                1,
+                torch.linspace(
+                    0, frames.shape[1] - 1, frames.shape[1] // cfg.SLOWFAST.ALPHA
+                ).long(),
+            )
+        else:
+            slow_pathway = torch.index_select(
+                torch.from_numpy(frames),
+                1,
+                torch.linspace(
+                    0, frames.shape[1] - 1, frames.shape[1] // cfg.SLOWFAST.ALPHA
+                ).long(),
+            )
+        frame_list = [slow_pathway, fast_pathway]
     elif cfg.MODEL.ARCH in cfg.MODEL.MULTI_PATHWAY_ARCH:
         fast_pathway = frames
         # Perform temporal sampling from the fast pathway.
@@ -95,7 +115,14 @@ def pack_pathway_output(cfg, frames):
                 0, frames.shape[1] - 1, frames.shape[1] // cfg.SLOWFAST.ALPHA
             ).long(),
         )
-        frame_list = [slow_pathway, fast_pathway]
+        middle_pathway = torch.index_select(
+            frames,
+            1,
+            torch.linspace(
+                0, frames.shape[1] - 1, (frames.shape[1] // cfg.SLOWFAST.ALPHA) * 2
+            ).long(),
+        )
+        frame_list = [slow_pathway, middle_pathway, fast_pathway]        
     else:
         raise NotImplementedError(
             "Model arch {} is not in {}".format(

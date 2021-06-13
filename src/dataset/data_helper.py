@@ -8,8 +8,9 @@ from iopath.common.file_io import g_pathmgr
 
 logger = logging.getLogger(__name__)
 
-FPS = 10
-VALID_FRAMES = range(38)
+FPS = 10 # changed from 30
+# VALID_FRAMES = range(902, 1799)
+VALID_FRAMES = range(1, 300)
 
 
 def load_image_lists(cfg, is_train):
@@ -39,7 +40,7 @@ def load_image_lists(cfg, is_train):
         with g_pathmgr.open(list_filename, "r") as f:
             f.readline()
             for line in f:
-                row = line.split(',')
+                row = line.split(' ')
                 # The format of each row should follow:
                 # original_vido_id video_id frame_id path labels.
                 assert len(row) == 5 # changed from 5
@@ -133,7 +134,8 @@ def get_keyframe_data(boxes_and_labels):
         0: 900
         30: 901
         """
-        return (sec - 900) * FPS
+        # return (sec - 900)* FPS
+        return sec * FPS
 
     keyframe_indices = []
     keyframe_boxes_and_labels = []

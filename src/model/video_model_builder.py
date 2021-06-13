@@ -1,10 +1,11 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import utils.weight_init_helper as init_helper
 
-from . import head_helper, resnet_helper, stem_helper
+from . import head_helper, resnet_helper, stem_helper, gcn_helper
 from .batchnorm_helper import get_norm
 from .build import MODEL_REGISTRY
 
@@ -161,6 +162,7 @@ class SlowFast(nn.Module):
         init_helper.init_weights(
             self, cfg.MODEL.FC_INIT_STD, cfg.RESNET.ZERO_INIT_FINAL_BN
         )
+        self.class_num = cfg.MODEL.NUM_CLASSES
 
     def _construct_network(self, cfg):
         """
@@ -397,6 +399,9 @@ class SlowFast(nn.Module):
             x = self.head(x, bboxes)
         else:
             x = self.head(x)
+        # x = x.view(x.shape[0], self.class_num)
+        
+        
         return x
 
 
@@ -753,3 +758,142 @@ class X3D(nn.Module):
         for module in self.children():
             x = module(x)
         return x
+
+class SFGCN_Fuse(nn.Module):
+    def __init__(self, dim_in, A, in_planes, out_planes):
+        super().__init__()
+        # self.fuse_f2s = nn.MultiheadAttention(dim_in * A.size(1), 1)
+        self.fuse_f2s = nn.Conv2d(
+                            dim_in,
+                            dim_in * A.size(1),
+                            kernel_size=(7, 3),
+                            stride=(8, 1),
+                            padding = (0, 1),
+                            bias=False,
+                            )
+        # self.conv = nn.Conv1d(in_planes, out_planes, 1)
+        self.bn = nn.BatchNorm2d(dim_in * A.size(1))
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x, A):
+        x_s = x[0]
+        x_f = x[1]
+        N, C, T, V = x_f.size()
+        fuse_f2s = self.fuse_f2s(x_f)
+
+        #attention forward
+        # fuse_f2s = x_f.permute((2, 0, 1, 3)).contiguous().view(T, N, -1)
+        # fuse_f2s, _ = self.fuse_f2s(fuse_f2s, fuse_f2s, fuse_f2s)
+        # fuse_f2s = self.conv(fuse_f2s.permute((1, 0, 2)))
+        # fuse_f2s = fuse_f2s.view(N, -1, C, V).permute((0, 2, 1, 3)).contiguous()
+
+        fuse_f2s = self.bn(fuse_f2s)
+        fuse_f2s = self.relu(fuse_f2s)
+        x_s_fuse = torch.cat([x_s, fuse_f2s], 1)
+        output = [x_s_fuse, x_f]
+        return output
+
+@MODEL_REGISTRY.register()
+class SF_GCN(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.num_pathways = cfg.SKELETON.NUM_PATHWAYS
+
+        # load graph
+        self.graph = gcn_helper.Graph(cfg.SKELETON.GRAPH_ARGS.LAYOUT, cfg.SKELETON.GRAPH_ARGS.STRATEGY)
+        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)
+        self.register_buffer('A', A)
+
+        # build networks
+        spatial_kernel_size = A.size(0)
+        temporal_kernel_size = 9
+        kernel_size = (temporal_kernel_size, spatial_kernel_size)
+        self.data_bn = nn.BatchNorm1d(cfg.SKELETON.IN_CHANNELS * A.size(1))
+
+        self.st_gcn_networks = nn.ModuleList((
+        gcn_helper.st_gcn(
+                        in_channels=[
+                                    cfg.SKELETON.IN_CHANNELS, cfg.SKELETON.IN_CHANNELS
+                                        ],
+                        out_channels=[
+                                    64, 64 // cfg.SLOWFAST.BETA_INV
+                                    ],
+                        kernel_size=kernel_size
+                            ),
+        SFGCN_Fuse(
+                    dim_in=64 // cfg.SLOWFAST.BETA_INV ,
+                    A=A,
+                    in_planes=cfg.SKELETON.MAX_FRAME,
+                    out_planes=cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.ALPHA
+                    ),
+        gcn_helper.st_gcn(
+                        in_channels=[
+                            64 + 64 // cfg.SLOWFAST.BETA_INV, 
+                            64 // cfg.SLOWFAST.BETA_INV
+                            ],
+                        out_channels=[
+                            128, 128 // cfg.SLOWFAST.BETA_INV
+                            ],
+                        kernel_size=kernel_size,
+                            ),
+        SFGCN_Fuse(
+                    dim_in=128 // cfg.SLOWFAST.BETA_INV,
+                    A=A,
+                    in_planes=cfg.SKELETON.MAX_FRAME,
+                    out_planes=cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.ALPHA
+                    ),
+        
+        ))
+        if cfg.SKELETON.EDGE_IMPORTANCE_WEIGHT:
+            self.edge_importance = nn.ParameterList([
+                nn.Parameter(torch.ones(self.A.size()))
+                for i in self.st_gcn_networks
+            ])
+        else:
+            self.edge_importance = [1] * len(self.st_gcn_networks)
+        
+        # self.fcn = nn.Conv2d(512, cfg.MODEL.NUM_CLASSES, kernel_size=1)
+        # self.fcn = nn.Linear(
+        #             (128 // cfg.SLOWFAST.BETA_INV)*A.size(1) + 128 + 128 // cfg.SLOWFAST.BETA_INV, 
+        #             cfg.MODEL.NUM_CLASSES
+        #             )
+        self.fcn = nn.Linear(
+            (128+128 // cfg.SLOWFAST.BETA_INV)*(cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.ALPHA),
+             cfg.MODEL.NUM_CLASSES)
+
+    def forward(self, x):
+        output = []
+        for pathway in range(self.num_pathways):
+            # data normalization
+            N, C, T, V, M = x[pathway].size()
+            x_ = x[pathway].permute(0, 4, 3, 1, 2).contiguous()
+            x_ = x_.view(N * M, V * C, T)
+            x_ = self.data_bn(x_)
+            x_ = x_.view(N, M, V, C, T)
+            x_ = x_.permute(0, 1, 3, 4, 2).contiguous()
+            x_ = x_.view(N * M, C, T, V)
+            x[pathway] = x_
+
+        # forwad
+        for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
+            x = gcn(x, self.A * importance)
+
+        # global pooling
+        # for pathway in range(self.num_pathways):
+        #     x_ = F.avg_pool2d(x[pathway], x[pathway].size()[2:])
+        #     output.append(x_.view(N, M, -1, 1, 1).mean(dim=1))
+        
+        for pathway in range(self.num_pathways):
+            T = x[pathway].size()[2]
+            x_ = x[pathway].view(N*M, -1, V)
+            x_ = F.avg_pool1d(x_, x_.size()[-1])   
+            output.append(x_.view(N ,M, -1, T, 1).mean(dim=1))     
+        # output = torch.cat(output, 1)
+        output = output[0]
+        output = output.view(output.size(0), -1)
+        
+        # prediction
+        output = self.fcn(output)
+        # output = torch.abs(output)
+
+        return output

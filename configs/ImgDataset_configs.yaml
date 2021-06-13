@@ -3,20 +3,20 @@ TRAIN:
   BATCH_SIZE: 2
   IS_VALIDATION: True
 DATA:
-  NUM_FRAMES: 10
+  NUM_FRAMES: 8
   SAMPLING_RATE: 2
   TRAIN_JITTER_SCALES: [256, 320]
   TRAIN_CROP_SIZE: 224
   TEST_CROP_SIZE: 224
   INPUT_CHANNEL_NUM: [3, 3]
   DETECTION_SCORE_THRESH: 0.8
-  TRAIN_PREDICT_BOX_LISTS: ["my_dataset_train_predicted_boxes_copy.csv",]
-  TEST_PREDICT_BOX_LISTS: ["my_dataset_val_predicted_boxes_copy.csv"]
+  TRAIN_PREDICT_BOX_LISTS: ["my_dataset_train_predicted_boxes.csv",]
+  TEST_PREDICT_BOX_LISTS: ["my_dataset_val_predicted_boxes.csv"]
 DETECTION:
   ENABLE: True
-  ALIGNED: True
+  ALIGNED: False
 SLOWFAST:
-  ALPHA: 4
+  ALPHA: 8
   BETA_INV: 8
   FUSION_CONV_CHANNEL_RATIO: 2
   FUSION_KERNEL_SZ: 7
@@ -57,7 +57,7 @@ MODEL:
   DROPOUT_RATE: 0.5
   HEAD_ACT: sigmoid
 TEST:
-  ENABLE: True
+  ENABLE: False
   DATASET: ava
   BATCH_SIZE: 8
 DATA_LOADER:

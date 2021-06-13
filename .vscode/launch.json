@@ -9,9 +9,9 @@
             "type": "python",
             "request": "launch",
             // "program": "${file}",
-            "program": "src/train.py",
+            "program": "src/main.py",
             "console": "integratedTerminal",
-            "args": ["--cfg", "configs/ImgDataset_configs.yaml", "--local_rank", "0"]
+            "args": ["--cfg", "configs/SKELETON_SLOWFAST_32x2_R50_SHORT.yaml"]
         }
     ]
 }
