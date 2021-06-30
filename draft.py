@@ -3,10 +3,12 @@ import torch.nn as nn
 import torch.nn
 from torch.nn import functional as F
 import numpy as np
+import pickle
 
-data = np.random.random((8, 16, 25))
-data = torch.from_numpy(data).float()
-# data.permute((0, 1, 3, 2)).contiguous()
-output = F.avg_pool1d(data, data.size()[-1])
+label_path = 'data/ucf101_skeleton/train_label.pkl'
+with open(label_path, 'rb') as f:
+    label_info = pickle.load(f)
+label = label_info[1]
+label_idx = list(set(label)) 
+print(label_idx)
 
-pass

@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.modules.activation import ReLU
 
 import utils.weight_init_helper as init_helper
 
@@ -759,10 +760,9 @@ class X3D(nn.Module):
             x = module(x)
         return x
 
-class SFGCN_Fuse(nn.Module):
-    def __init__(self, dim_in, A, in_planes, out_planes):
+class STGCN_Fuse(nn.Module):
+    def __init__(self, dim_in, A):
         super().__init__()
-        # self.fuse_f2s = nn.MultiheadAttention(dim_in * A.size(1), 1)
         self.fuse_f2s = nn.Conv2d(
                             dim_in,
                             dim_in * A.size(1),
@@ -771,26 +771,183 @@ class SFGCN_Fuse(nn.Module):
                             padding = (0, 1),
                             bias=False,
                             )
-        # self.conv = nn.Conv1d(in_planes, out_planes, 1)
         self.bn = nn.BatchNorm2d(dim_in * A.size(1))
         self.relu = nn.ReLU(inplace=True)
+        # self.residual = nn.Sequential(
+        #     nn.Conv2d(
+        #         dim_in,
+        #         dim_in,
+        #         kernel_size=1,
+        #         stride=(1,1)
+        #     ),
+        #     nn.BatchNorm2d(dim_in)
+        # )
+        # self.relu = nn.ReLU(inplace=True)
+        # self.fuse_f2s = nn.Sequential(
+        # nn.Conv2d(
+        #     dim_in,
+        #     dim_in * A.size(1),
+        #     kernel_size=(7, 3),
+        #     stride=(8, 1),
+        #     padding = (0, 1),
+        #     bias=False,
+        #                 ),
+        # nn.BatchNorm2d(dim_in * A.size(1)),
+        # nn.ReLU(inplace=True)
+        # )
 
     def forward(self, x, A):
         x_s = x[0]
         x_f = x[1]
-        N, C, T, V = x_f.size()
+        # res_xf = self.residual(x_f)
+        # res_xf = self.relu(res_xf + x_f)
+        # fuse_f2s = self.fuse_f2s(res_xf)
         fuse_f2s = self.fuse_f2s(x_f)
-
-        #attention forward
-        # fuse_f2s = x_f.permute((2, 0, 1, 3)).contiguous().view(T, N, -1)
-        # fuse_f2s, _ = self.fuse_f2s(fuse_f2s, fuse_f2s, fuse_f2s)
-        # fuse_f2s = self.conv(fuse_f2s.permute((1, 0, 2)))
-        # fuse_f2s = fuse_f2s.view(N, -1, C, V).permute((0, 2, 1, 3)).contiguous()
-
         fuse_f2s = self.bn(fuse_f2s)
         fuse_f2s = self.relu(fuse_f2s)
         x_s_fuse = torch.cat([x_s, fuse_f2s], 1)
         output = [x_s_fuse, x_f]
+        return output
+
+class SFGCN_Fuse(nn.Module):
+    def __init__(self, dim_in, A):
+        super().__init__()
+        # self.fuse_f2s = nn.Conv2d(
+        #                     dim_in,
+        #                     dim_in * A.size(1),
+        #                     kernel_size=(7, 3),
+        #                     stride=(8, 1),
+        #                     padding = (0, 1),
+        #                     bias=False,
+        #                     )
+        # self.bn = nn.BatchNorm2d(dim_in * A.size(1))
+        # self.relu = nn.ReLU(inplace=True)
+        self.residual = nn.Sequential(
+            nn.Conv2d(
+                dim_in,
+                dim_in,
+                kernel_size=1,
+                stride=(1,1)
+            ),
+            nn.BatchNorm2d(dim_in)
+        )
+        self.relu = nn.ReLU(inplace=True)
+        self.fuse_f2s = nn.Sequential(
+        nn.Conv2d(
+            dim_in,
+            dim_in * A.size(1),
+            kernel_size=(7, 3),
+            stride=(8, 1),
+            padding = (0, 1),
+            bias=False,
+                        ),
+        nn.BatchNorm2d(dim_in * A.size(1)),
+        nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x, A):
+        x_s = x[0]
+        x_f = x[1]
+        res_xf = self.residual(x_f)
+        res_xf = self.relu(res_xf + x_f)
+        fuse_f2s = self.fuse_f2s(res_xf)
+        # fuse_f2s = self.bn(fuse_f2s)
+        # fuse_f2s = self.relu(fuse_f2s)
+        x_s_fuse = torch.cat([x_s, fuse_f2s], 1)
+        output = [x_s_fuse, res_xf]
+        return output
+
+@MODEL_REGISTRY.register()
+class SF_STGCN(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.num_pathways = cfg.SKELETON.NUM_PATHWAYS
+
+        # load graph
+        self.graph = gcn_helper.Graph(cfg.SKELETON.GRAPH_ARGS.LAYOUT, cfg.SKELETON.GRAPH_ARGS.STRATEGY)
+        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)
+        self.register_buffer('A', A)
+
+        # build networks
+        spatial_kernel_size = A.size(0)
+        temporal_kernel_size = 9
+        kernel_size = (temporal_kernel_size, spatial_kernel_size)
+        self.data_bn = nn.BatchNorm1d(cfg.SKELETON.IN_CHANNELS * A.size(1))
+
+        self.st_gcn_networks = nn.ModuleList((
+        gcn_helper.sf_gcn(
+                        in_channels=[
+                                    cfg.SKELETON.IN_CHANNELS, cfg.SKELETON.IN_CHANNELS
+                                        ],
+                        out_channels=[
+                                    64, 64 // cfg.SLOWFAST.BETA_INV
+                                    ],
+                        kernel_size=kernel_size
+                            ),
+        STGCN_Fuse(
+                    dim_in=64 // cfg.SLOWFAST.BETA_INV ,
+                    A=A,
+                    ),
+        gcn_helper.sf_gcn(
+                        in_channels=[
+                            64 + 64 // cfg.SLOWFAST.BETA_INV * A.size(1), 
+                            64 // cfg.SLOWFAST.BETA_INV
+                            ],
+                        out_channels=[
+                            128, 128 // cfg.SLOWFAST.BETA_INV
+                            ],
+                        kernel_size=kernel_size,
+                            ),
+        STGCN_Fuse(
+                    dim_in=128 // cfg.SLOWFAST.BETA_INV,
+                    A=A,
+                    ),
+        
+        ))
+        if cfg.SKELETON.EDGE_IMPORTANCE_WEIGHT:
+            self.edge_importance = nn.ParameterList([
+                nn.Parameter(torch.ones(self.A.size()))
+                for i in self.st_gcn_networks
+            ])
+        else:
+            self.edge_importance = [1] * len(self.st_gcn_networks)
+        
+        # self.fcn = nn.Conv2d(512, cfg.MODEL.NUM_CLASSES, kernel_size=1)
+        # self.fcn = nn.Linear(
+        #             (128 // cfg.SLOWFAST.BETA_INV)*A.size(1) + 128 + 128 // cfg.SLOWFAST.BETA_INV, 
+        #             cfg.MODEL.NUM_CLASSES
+        #             )
+        self.fcn = nn.Linear(
+            (128+128 // cfg.SLOWFAST.BETA_INV * A.size(1)) * (cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.BETA_INV),
+             cfg.MODEL.NUM_CLASSES)
+
+    def forward(self, x):
+        for pathway in range(self.num_pathways):
+            # data normalization
+            N, C, T, V, M = x[pathway].size()
+            x_ = x[pathway].permute(0, 4, 3, 1, 2).contiguous()
+            x_ = x_.view(N * M, V * C, T)
+            x_ = self.data_bn(x_)
+            x_ = x_.view(N, M, V, C, T)
+            x_ = x_.permute(0, 1, 3, 4, 2).contiguous()
+            x_ = x_.view(N * M, C, T, V)
+            x[pathway] = x_
+
+        # forwad
+        for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
+            x = gcn(x, self.A * importance)
+
+        output = x[0]
+        T = output.size()[2]
+        output = output.view(N*M, -1, V)
+        output = F.avg_pool1d(output, output.size()[-1])   
+        output.view(N ,M, -1, T, 1).mean(dim=1)    
+        output = output.view(output.size(0), -1)
+        
+        # prediction
+        output = self.fcn(output)
+
+
         return output
 
 @MODEL_REGISTRY.register()
@@ -809,60 +966,114 @@ class SF_GCN(nn.Module):
         temporal_kernel_size = 9
         kernel_size = (temporal_kernel_size, spatial_kernel_size)
         self.data_bn = nn.BatchNorm1d(cfg.SKELETON.IN_CHANNELS * A.size(1))
-
-        self.st_gcn_networks = nn.ModuleList((
-        gcn_helper.st_gcn(
-                        in_channels=[
-                                    cfg.SKELETON.IN_CHANNELS, cfg.SKELETON.IN_CHANNELS
-                                        ],
-                        out_channels=[
-                                    64, 64 // cfg.SLOWFAST.BETA_INV
-                                    ],
-                        kernel_size=kernel_size
-                            ),
-        SFGCN_Fuse(
-                    dim_in=64 // cfg.SLOWFAST.BETA_INV ,
-                    A=A,
-                    in_planes=cfg.SKELETON.MAX_FRAME,
-                    out_planes=cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.ALPHA
-                    ),
-        gcn_helper.st_gcn(
-                        in_channels=[
-                            64 + 64 // cfg.SLOWFAST.BETA_INV, 
-                            64 // cfg.SLOWFAST.BETA_INV
-                            ],
-                        out_channels=[
-                            128, 128 // cfg.SLOWFAST.BETA_INV
-                            ],
-                        kernel_size=kernel_size,
-                            ),
-        SFGCN_Fuse(
-                    dim_in=128 // cfg.SLOWFAST.BETA_INV,
-                    A=A,
-                    in_planes=cfg.SKELETON.MAX_FRAME,
-                    out_planes=cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.ALPHA
-                    ),
-        
+        self.sf_gcn_networks = nn.ModuleList((
+            gcn_helper.GCN(
+                in_channels=[cfg.SKELETON.IN_CHANNELS, cfg.SKELETON.IN_CHANNELS],
+                out_channels=[64, 64 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1]
+            ),
+            SFGCN_Fuse(
+                dim_in=64 // cfg.SLOWFAST.BETA_INV ,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[64 + 64 // cfg.SLOWFAST.BETA_INV * A.size(1), 64 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[64, 64 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=64 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[64 + 64 // cfg.SLOWFAST.BETA_INV * A.size(1), 64 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[64, 64 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1]
+            ),
+            SFGCN_Fuse(
+                dim_in=64 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[64 + 64 // cfg.SLOWFAST.BETA_INV * A.size(1), 64 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[64, 64 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=64 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[64 + 64 // cfg.SLOWFAST.BETA_INV * A.size(1), 64 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[128, 128 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=128 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[128 + 128 // cfg.SLOWFAST.BETA_INV * A.size(1), 128 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[128, 128 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=128 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[128 + 128 // cfg.SLOWFAST.BETA_INV * A.size(1), 128 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[128, 128 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=128 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[128 + 128 // cfg.SLOWFAST.BETA_INV * A.size(1), 128 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[256, 256 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=256 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[256 + 256 // cfg.SLOWFAST.BETA_INV * A.size(1), 256 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[256, 256 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=256 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
+            gcn_helper.GCN(
+                in_channels=[256 + 256 // cfg.SLOWFAST.BETA_INV * A.size(1), 256 // cfg.SLOWFAST.BETA_INV],
+                out_channels=[256, 256 // cfg.SLOWFAST.BETA_INV],
+                kernel_size=kernel_size[1],
+            ),
+            SFGCN_Fuse(
+                dim_in=256 // cfg.SLOWFAST.BETA_INV,
+                A=A,
+            ),
         ))
+
         if cfg.SKELETON.EDGE_IMPORTANCE_WEIGHT:
             self.edge_importance = nn.ParameterList([
                 nn.Parameter(torch.ones(self.A.size()))
-                for i in self.st_gcn_networks
+                for i in self.sf_gcn_networks
             ])
         else:
-            self.edge_importance = [1] * len(self.st_gcn_networks)
-        
-        # self.fcn = nn.Conv2d(512, cfg.MODEL.NUM_CLASSES, kernel_size=1)
-        # self.fcn = nn.Linear(
-        #             (128 // cfg.SLOWFAST.BETA_INV)*A.size(1) + 128 + 128 // cfg.SLOWFAST.BETA_INV, 
-        #             cfg.MODEL.NUM_CLASSES
-        #             )
-        self.fcn = nn.Linear(
-            (128+128 // cfg.SLOWFAST.BETA_INV)*(cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.ALPHA),
-             cfg.MODEL.NUM_CLASSES)
+            self.edge_importance = [1] * len(self.sf_gcn_networks)
 
+        self.fcn = nn.Linear(
+            (128 + 128 // cfg.SLOWFAST.BETA_INV * A.size(1))*(cfg.SKELETON.MAX_FRAME // cfg.SLOWFAST.ALPHA)*2,
+             cfg.MODEL.NUM_CLASSES
+             )
+        
+        
     def forward(self, x):
-        output = []
         for pathway in range(self.num_pathways):
             # data normalization
             N, C, T, V, M = x[pathway].size()
@@ -872,28 +1083,132 @@ class SF_GCN(nn.Module):
             x_ = x_.view(N, M, V, C, T)
             x_ = x_.permute(0, 1, 3, 4, 2).contiguous()
             x_ = x_.view(N * M, C, T, V)
-            x[pathway] = x_
+            x[pathway] = x_  
+
+        # forwad
+        for gcn, importance in zip(self.sf_gcn_networks, self.edge_importance):
+            x = gcn(x, self.A * importance) 
+
+        # pooling layer
+        output = x[0]
+        n, c, t, v = output.size()
+        output = output.view(N*M, -1, v)
+        output = F.avg_pool1d(output, output.size()[-1])
+        output = output.view(N ,M, -1, t, 1).mean(dim=1)
+        output = output.view(output.size(0), -1)
+
+        # prediction
+        output = self.fcn(output)
+        # output = F.softmax(output, dim=1)
+
+
+        return output
+
+@MODEL_REGISTRY.register()
+class ST_GCN(nn.Module):
+    r"""Spatial temporal graph convolutional networks.
+
+    Args:
+        in_channels (int): Number of channels in the input data
+        num_class (int): Number of classes for the classification task
+        graph_args (dict): The arguments for building the graph
+        edge_importance_weighting (bool): If ``True``, adds a learnable
+            importance weighting to the edges of the graph
+        **kwargs (optional): Other parameters for graph convolution units
+
+    Shape:
+        - Input: :math:`(N, in_channels, T_{in}, V_{in}, M_{in})`
+        - Output: :math:`(N, num_class)` where
+            :math:`N` is a batch size,
+            :math:`T_{in}` is a length of input sequence,
+            :math:`V_{in}` is the number of graph nodes,
+            :math:`M_{in}` is the number of instance in a frame.
+    """
+
+    def __init__(self, cfg):
+        super().__init__()
+
+        # load graph
+        self.graph = gcn_helper.Graph(cfg.SKELETON.GRAPH_ARGS.LAYOUT, cfg.SKELETON.GRAPH_ARGS.STRATEGY)
+        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)
+        self.register_buffer('A', A)
+
+        # build networks
+        spatial_kernel_size = A.size(0)
+        temporal_kernel_size = 9
+        kernel_size = (temporal_kernel_size, spatial_kernel_size)
+        self.data_bn = nn.BatchNorm1d(cfg.SKELETON.IN_CHANNELS * A.size(1))
+        # kwargs0 = {k: v for k, v in kwargs.items() if k != 'dropout'}
+        self.st_gcn_networks = nn.ModuleList((
+            gcn_helper.st_gcn(cfg.SKELETON.IN_CHANNELS, 64, kernel_size, 1, residual=True),
+            gcn_helper.st_gcn(64, 64, kernel_size, 1),
+            gcn_helper.st_gcn(64, 64, kernel_size, 1),
+            gcn_helper.st_gcn(64, 64, kernel_size, 1),
+            gcn_helper.st_gcn(64, 128, kernel_size, 2),
+            gcn_helper.st_gcn(128, 128, kernel_size, 1),
+            gcn_helper.st_gcn(128, 128, kernel_size, 1),
+            gcn_helper.st_gcn(128, 256, kernel_size, 2),
+            gcn_helper.st_gcn(256, 256, kernel_size, 1),
+            gcn_helper.st_gcn(256, 256, kernel_size, 1),
+        ))
+
+        # initialize parameters for edge importance weighting
+        if cfg.SKELETON.EDGE_IMPORTANCE_WEIGHT:
+            self.edge_importance = nn.ParameterList([
+                nn.Parameter(torch.ones(self.A.size()))
+                for i in self.st_gcn_networks
+            ])
+        else:
+            self.edge_importance = [1] * len(self.st_gcn_networks)
+
+        # fcn for prediction
+        self.fcn = nn.Conv2d(256, cfg.MODEL.NUM_CLASSES, kernel_size=1)
+
+    def forward(self, x):
+
+        # data normalization
+        N, C, T, V, M = x.size()
+        x = x.permute(0, 4, 3, 1, 2).contiguous()
+        x = x.view(N * M, V * C, T)
+        x = self.data_bn(x)
+        x = x.view(N, M, V, C, T)
+        x = x.permute(0, 1, 3, 4, 2).contiguous()
+        x = x.view(N * M, C, T, V)
 
         # forwad
         for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
-            x = gcn(x, self.A * importance)
+            x, _ = gcn(x, self.A * importance)
 
         # global pooling
-        # for pathway in range(self.num_pathways):
-        #     x_ = F.avg_pool2d(x[pathway], x[pathway].size()[2:])
-        #     output.append(x_.view(N, M, -1, 1, 1).mean(dim=1))
-        
-        for pathway in range(self.num_pathways):
-            T = x[pathway].size()[2]
-            x_ = x[pathway].view(N*M, -1, V)
-            x_ = F.avg_pool1d(x_, x_.size()[-1])   
-            output.append(x_.view(N ,M, -1, T, 1).mean(dim=1))     
-        # output = torch.cat(output, 1)
-        output = output[0]
-        output = output.view(output.size(0), -1)
-        
-        # prediction
-        output = self.fcn(output)
-        # output = torch.abs(output)
+        x = F.avg_pool2d(x, x.size()[2:])
+        x = x.view(N, M, -1, 1, 1).mean(dim=1)
 
-        return output
+        # prediction
+        x = self.fcn(x)
+        x = x.view(x.size(0), -1)
+
+        return x
+
+    def extract_feature(self, x):
+
+        # data normalization
+        N, C, T, V, M = x.size()
+        x = x.permute(0, 4, 3, 1, 2).contiguous()
+        x = x.view(N * M, V * C, T)
+        x = self.data_bn(x)
+        x = x.view(N, M, V, C, T)
+        x = x.permute(0, 1, 3, 4, 2).contiguous()
+        x = x.view(N * M, C, T, V)
+
+        # forwad
+        for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
+            x, _ = gcn(x, self.A * importance)
+
+        _, c, t, v = x.size()
+        feature = x.view(N, M, c, t, v).permute(0, 2, 3, 4, 1)
+
+        # prediction
+        x = self.fcn(x)
+        output = x.view(N, M, -1, t, v).permute(0, 2, 3, 4, 1)
+
+        return output, feature

@@ -1,4 +1,5 @@
 from fvcore.common.config import CfgNode
+from torch.optim.sgd import SGD
 
 
 _C = CfgNode()
@@ -11,6 +12,7 @@ _C.TRAIN.ENABLE = True
 _C.TRAIN.DATASET = "ImgData"
 _C.TRAIN.BATCH_SIZE = 2
 _C.TRAIN.IS_VALIDATION = True
+_C.TRAIN.OPTIMIZER = "SGD"
 
 # -----------------------------------------------------------------------------
 # Data options
@@ -182,6 +184,8 @@ _C.SKELETON.DEBUG = False
 _C.SKELETON.RANDOM_CHOOSE = True
 
 _C.SKELETON.RANDOM_MOVE = True
+
+_C.SKELETON.RESIDUAL = True
 
 _C.SKELETON.WINDOW_SIZE = 150
 

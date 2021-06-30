@@ -1,8 +1,9 @@
 TRAIN:
   ENABLE: True
   DATASET: Skeleton
-  BATCH_SIZE: 16
+  BATCH_SIZE: 64
   IS_VALIDATION: True
+  OPTIMIZER: SGD
 DATA:
   NUM_FRAMES: 32
   SAMPLING_RATE: 2
@@ -19,7 +20,7 @@ SKELETON:
   TRAIN_LABEL_FILE: "data/NTU-RGB-D/xsub/train_label.pkl"
   TEST_LABEL_FILE: "data/NTU-RGB-D/xsub/val_label.pkl"
   PERSON_NUM_OUT: 5
-  MAX_FRAME: 150
+  MAX_FRAME: 300
   GRAPH_ARGS:
     LAYOUT: "ntu-rgb+d"
     STRATEGY: "spatial"
@@ -50,8 +51,8 @@ BN:
   USE_PRECISE_STATS: False
   NUM_BATCHES_PRECISE: 200
 SOLVER:
-  BASE_LR: 0.4
-  LR_DECAY: 0.4
+  BASE_LR: 0.1
+  LR_DECAY: 0.1
   LR_POLICY: steps_with_relative_lrs
   STEPS: [0, 10, 15, 20]
   LRS: [1, 0.1, 0.01, 0.001]
@@ -64,7 +65,7 @@ SOLVER:
 MODEL:
   NUM_CLASSES: 60
   ARCH: sf_gcn
-  MODEL_NAME: SF_GCN
+  MODEL_NAME: SF_STGCN
   LOSS_FUNC: bce
   DROPOUT_RATE: 0.5
   HEAD_ACT: sigmoid

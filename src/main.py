@@ -83,7 +83,10 @@ def main_worker(rank, nprocs, args ,cfg):
     # criterion = nn.BCELoss().cuda(rank)
     criterion = nn.CrossEntropyLoss().cuda(rank)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=cfg.SOLVER.BASE_LR, momentum=cfg.SOLVER.MOMENTUM, weight_decay=cfg.SOLVER.WEIGHT_DECAY)
+    if cfg.TRAIN.OPTIMIZER == "SGD":
+        optimizer = torch.optim.SGD(model.parameters(), lr=cfg.SOLVER.BASE_LR, momentum=cfg.SOLVER.MOMENTUM, weight_decay=cfg.SOLVER.WEIGHT_DECAY)
+    elif cfg.TRAIN.OPTIMIZER == "Adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.SOLVER.BASE_LR, weight_decay=cfg.SOLVER.WEIGHT_DECAY)
 
     # model, optimizer = amp.initialize(model, optimizer)
     model = DDP(model, device_ids=[rank], find_unused_parameters=True)
@@ -96,6 +99,9 @@ def main_worker(rank, nprocs, args ,cfg):
 
     # get logget 
     logger = get_logger(args)
+    logger.info('Parameter:{ Batch_size:' + str(cfg.TRAIN.BATCH_SIZE) + 
+                '\tbase_lr:' + str(cfg.SOLVER.BASE_LR) + '\tlr_decay:' + str(cfg.SOLVER.LR_DECAY) + 
+                '\tModel:' + cfg.MODEL.MODEL_NAME + '}')
     # tesorboard writer
     writer = SummaryWriter()
 
@@ -256,5 +262,4 @@ if __name__ == '__main__':
     cfg = get_cfg()
     if args.cfg_file is not None:
         cfg.merge_from_file(args.cfg_file)
-    # os.environ["CUDA_VISIBLE_DIVICES"] = args.gpu_idx
     mp.spawn(main_worker, nprocs=args.nprocs, args=(args.nprocs, args, cfg), join=True)
